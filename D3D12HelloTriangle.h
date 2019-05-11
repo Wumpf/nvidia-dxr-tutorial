@@ -27,10 +27,11 @@ class D3D12HelloTriangle : public DXSample
 public:
 	D3D12HelloTriangle(UINT width, UINT height, std::wstring name);
 
-	virtual void OnInit();
-	virtual void OnUpdate();
-	virtual void OnRender();
-	virtual void OnDestroy();
+	virtual void OnInit() override;
+	virtual void OnUpdate() override;
+	virtual void OnRender() override;
+	virtual void OnDestroy() override;
+	virtual void OnKeyUp(UINT8 key) override;
 
 private:
 	static const UINT FrameCount = 2;
@@ -45,7 +46,7 @@ private:
 	CD3DX12_VIEWPORT m_viewport;
 	CD3DX12_RECT m_scissorRect;
 	ComPtr<IDXGISwapChain3> m_swapChain;
-	ComPtr<ID3D12Device> m_device;
+	ComPtr<ID3D12Device5> m_device;
 	ComPtr<ID3D12Resource> m_renderTargets[FrameCount];
 	ComPtr<ID3D12CommandAllocator> m_commandAllocator;
 	ComPtr<ID3D12CommandQueue> m_commandQueue;
@@ -64,6 +65,8 @@ private:
 	HANDLE m_fenceEvent;
 	ComPtr<ID3D12Fence> m_fence;
 	UINT64 m_fenceValue;
+
+	bool m_raster = true;
 
 	void LoadPipeline();
 	void LoadAssets();
