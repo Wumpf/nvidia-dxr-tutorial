@@ -12,6 +12,8 @@
 #pragma once
 
 #include "DXSample.h"
+#include "nv_helpers_dx12/TopLevelASGenerator.h"
+#include <vector>
 
 using namespace DirectX;
 
@@ -42,6 +44,39 @@ private:
 		XMFLOAT4 color;
 	};
 
+	struct AccelerationStructureBuffers
+	{
+		ComPtr<ID3D12Resource> scratch;
+		ComPtr<ID3D12Resource> result;
+		ComPtr<ID3D12Resource> descriptors;
+	};
+
+	nv_helpers_dx12::TopLevelASGenerator m_topLevelASGenerator;
+	AccelerationStructureBuffers m_topLevelASBuffers;
+
+	struct BottomLevelASInstance
+	{
+		ComPtr<ID3D12Resource> bottomLevelAS;
+		DirectX::XMMATRIX transformation;
+	};
+	std::vector<BottomLevelASInstance> m_bottomLevelASInstances;
+	ComPtr<ID3D12Resource> m_bottomLevelAS;
+
+	/// Create the acceleration structure of an instance
+	///
+	/// \param     vVertexBuffers : pair of buffer and vertex count
+	/// \return    AccelerationStructureBuffers for TLAS
+	AccelerationStructureBuffers CreateBottomLevelAS(std::vector<std::pair<ComPtr<ID3D12Resource>, uint32_t>> vVertexBuffers);
+
+	/// Create the main acceleration structure that holds
+	/// all instances of the scene
+	/// \param     instances : pair of BLAS and transform
+	void CreateTopLevelAS(const std::vector<BottomLevelASInstance>& bottomLevelASInstances);
+
+	/// Create all acceleration structures, bottom and top
+	void CreateAccelerationStructures();
+
+
 	// Pipeline objects.
 	CD3DX12_VIEWPORT m_viewport;
 	CD3DX12_RECT m_scissorRect;
@@ -53,7 +88,7 @@ private:
 	ComPtr<ID3D12RootSignature> m_rootSignature;
 	ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
 	ComPtr<ID3D12PipelineState> m_pipelineState;
-	ComPtr<ID3D12GraphicsCommandList> m_commandList;
+	ComPtr<ID3D12GraphicsCommandList4> m_commandList;
 	UINT m_rtvDescriptorSize;
 
 	// App resources.

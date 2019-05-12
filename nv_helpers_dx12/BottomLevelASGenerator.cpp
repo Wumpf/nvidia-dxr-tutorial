@@ -169,10 +169,7 @@ void BottomLevelASGenerator::ComputeASBufferSizes(
 // case of iterative updates. Note that the update can be done in place: the result and
 // previousResult pointers can be the same.
 void BottomLevelASGenerator::Generate(
-    ID3D12GraphicsCommandList* commandList, // Command list on which the build will be enqueued
-	ID3D12GraphicsCommandList4*
-        rtCmdList,                 // Same command list, casted into a raytracing list. This
-                                   // will not be needed anymore with Windows 10 RS5.
+    ID3D12GraphicsCommandList4* commandList, // Command list on which the build will be enqueued
     ID3D12Resource* scratchBuffer, // Scratch buffer used by the builder to
                                    // store temporary data
     ID3D12Resource* resultBuffer,  // Result buffer storing the acceleration structure
@@ -223,7 +220,7 @@ void BottomLevelASGenerator::Generate(
   buildDesc.Inputs.Flags = flags;
 
   // Build the AS
-  rtCmdList->BuildRaytracingAccelerationStructure(&buildDesc, 0, nullptr);
+  commandList->BuildRaytracingAccelerationStructure(&buildDesc, 0, nullptr);
 
   // Wait for the builder to complete by setting a barrier on the resulting buffer. This is
   // particularly important as the construction of the top-level hierarchy may be called right

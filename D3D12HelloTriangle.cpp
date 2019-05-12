@@ -11,6 +11,8 @@
 
 #include "stdafx.h"
 #include "D3D12HelloTriangle.h"
+#include "DXRHelper.h"
+#include "nv_helpers_dx12/BottomLevelASGenerator.h"
 
 D3D12HelloTriangle::D3D12HelloTriangle(UINT width, UINT height, std::wstring name) :
 	DXSample(width, height, name),
@@ -25,6 +27,8 @@ void D3D12HelloTriangle::OnInit()
 {
 	LoadPipeline();
 	LoadAssets();
+
+	CreateAccelerationStructures();
 
 	// Command lists are created in the recording state, but there is nothing
 	// to record yet. The main loop expects it to be closed, so close it now.
@@ -285,6 +289,58 @@ void D3D12HelloTriangle::OnKeyUp(UINT8 key)
 {
 	if (key == VK_SPACE)
 		m_raster = !m_raster;
+}
+
+D3D12HelloTriangle::AccelerationStructureBuffers D3D12HelloTriangle::CreateBottomLevelAS(std::vector<std::pair<ComPtr<ID3D12Resource>, uint32_t>> vVertexBuffers)
+{
+	nv_helpers_dx12::BottomLevelASGenerator bottomLevelAS;
+	for (const auto& buffer : vVertexBuffers)
+		bottomLevelAS.AddVertexBuffer(buffer.first.Get(), 0, buffer.second, sizeof(Vertex), 0, 0);
+
+	UINT64 scratchSize, resultSize;
+	bottomLevelAS.ComputeASBufferSizes(m_device.Get(), false, &scratchSize, &resultSize);
+
+	AccelerationStructureBuffers buffers;
+	buffers.scratch = nv_helpers_dx12::CreateBuffer(m_device.Get(), scratchSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nv_helpers_dx12::kDefaultHeapProps);
+	buffers.result = nv_helpers_dx12::CreateBuffer(m_device.Get(), resultSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, nv_helpers_dx12::kDefaultHeapProps);
+
+	bottomLevelAS.Generate(m_commandList.Get(), buffers.scratch.Get(), buffers.result.Get(), false, nullptr);
+
+	return buffers;
+}
+
+void D3D12HelloTriangle::CreateTopLevelAS(const std::vector<BottomLevelASInstance>& bottomLevelASInstances)
+{
+	for (size_t i = 0; i < bottomLevelASInstances.size(); ++i)
+		m_topLevelASGenerator.AddInstance(bottomLevelASInstances[i].bottomLevelAS.Get(), bottomLevelASInstances[i].transformation, (UINT)i, 0);
+
+	UINT64 scratchSize, resultSize, descsSize;
+	m_topLevelASGenerator.ComputeASBufferSizes(m_device.Get(), false, &scratchSize, &resultSize, &descsSize);
+
+	m_topLevelASBuffers.scratch = nv_helpers_dx12::CreateBuffer(m_device.Get(), scratchSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nv_helpers_dx12::kDefaultHeapProps);
+	m_topLevelASBuffers.result = nv_helpers_dx12::CreateBuffer(m_device.Get(), resultSize, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, nv_helpers_dx12::kDefaultHeapProps);
+	m_topLevelASBuffers.descriptors = nv_helpers_dx12::CreateBuffer(m_device.Get(), descsSize, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ, nv_helpers_dx12::kUploadHeapProps);
+
+	m_topLevelASGenerator.Generate(m_commandList.Get(), m_topLevelASBuffers.scratch.Get(), m_topLevelASBuffers.result.Get(), m_topLevelASBuffers.descriptors.Get());
+}
+
+void D3D12HelloTriangle::CreateAccelerationStructures()
+{
+	AccelerationStructureBuffers bottomLevelBuffers = CreateBottomLevelAS({ { m_vertexBuffer.Get(), 3 } }); // BottomAS for triangle vertex buffer
+	m_bottomLevelASInstances = { { bottomLevelBuffers.result, XMMatrixIdentity() } };
+	CreateTopLevelAS(m_bottomLevelASInstances);
+
+	m_commandList->Close();
+	ID3D12CommandList* commandLists[] = { m_commandList.Get() };
+	m_commandQueue->ExecuteCommandLists(1, commandLists);
+
+	++m_fenceValue;
+	m_commandQueue->Signal(m_fence.Get(), m_fenceValue);
+	m_fence->SetEventOnCompletion(m_fenceValue, m_fenceEvent);
+	WaitForSingleObject(m_fenceEvent, INFINITE);
+
+	ThrowIfFailed(m_commandList->Reset(m_commandAllocator.Get(), m_pipelineState.Get()));
+	m_bottomLevelAS = bottomLevelBuffers.result;
 }
 
 void D3D12HelloTriangle::PopulateCommandList()

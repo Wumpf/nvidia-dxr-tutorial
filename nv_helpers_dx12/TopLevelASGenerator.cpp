@@ -126,9 +126,9 @@ void TopLevelASGenerator::ComputeASBufferSizes(
 
   // Buffer sizes need to be 256-byte-aligned
   info.ResultDataMaxSizeInBytes =
-      ROUND_UP(info.ResultDataMaxSizeInBytes, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+      ROUND_UP(info.ResultDataMaxSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
   info.ScratchDataSizeInBytes =
-      ROUND_UP(info.ScratchDataSizeInBytes, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+      ROUND_UP(info.ScratchDataSizeInBytes, D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
 
   m_resultSizeInBytes = info.ResultDataMaxSizeInBytes;
   m_scratchSizeInBytes = info.ScratchDataSizeInBytes;
@@ -136,7 +136,7 @@ void TopLevelASGenerator::ComputeASBufferSizes(
   // the required size from the instance count
   m_instanceDescsSizeInBytes =
       ROUND_UP(sizeof(D3D12_RAYTRACING_INSTANCE_DESC) * static_cast<UINT64>(m_instances.size()),
-               D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+		  D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
 
   *scratchSizeInBytes = m_scratchSizeInBytes;
   *resultSizeInBytes = m_resultSizeInBytes;
