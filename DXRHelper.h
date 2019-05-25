@@ -119,6 +119,7 @@ IDxcBlob* CompileShaderLibrary(LPCWSTR fileName)
 
   IDxcBlob* pBlob;
   ThrowIfFailed(pResult->GetResult(&pBlob));
+
   return pBlob;
 }
 

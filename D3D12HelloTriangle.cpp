@@ -13,6 +13,8 @@
 #include "D3D12HelloTriangle.h"
 #include "DXRHelper.h"
 #include "nv_helpers_dx12/BottomLevelASGenerator.h"
+#include "nv_helpers_dx12/RaytracingPipelineGenerator.h"   
+#include "nv_helpers_dx12/RootSignatureGenerator.h"
 
 D3D12HelloTriangle::D3D12HelloTriangle(UINT width, UINT height, std::wstring name) :
 	DXSample(width, height, name),
@@ -29,6 +31,7 @@ void D3D12HelloTriangle::OnInit()
 	LoadAssets();
 
 	CreateAccelerationStructures();
+	CreateRaytracingPipeline();
 
 	// Command lists are created in the recording state, but there is nothing
 	// to record yet. The main loop expects it to be closed, so close it now.
@@ -407,4 +410,58 @@ void D3D12HelloTriangle::WaitForPreviousFrame()
 	}
 
 	m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
+}
+
+ComPtr<ID3D12RootSignature> D3D12HelloTriangle::CreateRayGenSignature()
+{
+	nv_helpers_dx12::RootSignatureGenerator rsc;
+	rsc.AddHeapRangesParameter(
+		{ {0 /*u0*/, 1 /*1 descriptor */, 0 /*use the implicit register space 0*/,
+		  D3D12_DESCRIPTOR_RANGE_TYPE_UAV /* UAV representing the output buffer*/,
+		  0 /*heap slot where the UAV is defined*/},
+		 {0 /*t0*/, 1, 0, D3D12_DESCRIPTOR_RANGE_TYPE_SRV /*Top-level acceleration structure*/, 1}
+		});
+
+	return rsc.Generate(m_device.Get(), true);
+}
+
+ComPtr<ID3D12RootSignature> D3D12HelloTriangle::CreateHitSignature()
+{
+	nv_helpers_dx12::RootSignatureGenerator rsc;
+	return rsc.Generate(m_device.Get(), true);
+}
+
+ComPtr<ID3D12RootSignature> D3D12HelloTriangle::CreateMissSignature()
+{
+	nv_helpers_dx12::RootSignatureGenerator rsc;
+	return rsc.Generate(m_device.Get(), true);
+}
+
+void D3D12HelloTriangle::CreateRaytracingPipeline()
+{
+	nv_helpers_dx12::RayTracingPipelineGenerator pipeline(m_device.Get());
+
+	m_rayGenLibrary = nv_helpers_dx12::CompileShaderLibrary(L"RayGen.hlsl");
+	m_missLibrary = nv_helpers_dx12::CompileShaderLibrary(L"Miss.hlsl");
+	m_hitLibrary = nv_helpers_dx12::CompileShaderLibrary(L"Hit.hlsl");
+
+	pipeline.AddLibrary(m_rayGenLibrary.Get(), { L"RayGen" });
+	pipeline.AddLibrary(m_missLibrary.Get(), { L"Miss" });
+	pipeline.AddLibrary(m_hitLibrary.Get(), { L"ClosestHit" });
+
+	m_rayGenSignature = CreateRayGenSignature();
+	m_missSignature = CreateMissSignature();
+	m_hitSignature = CreateHitSignature();
+
+	pipeline.AddHitGroup(L"HitGroup", L"ClosestHit");
+
+	pipeline.AddRootSignatureAssociation(m_rayGenSignature.Get(), { L"RayGen" });
+	pipeline.AddRootSignatureAssociation(m_missSignature.Get(), { L"Miss" });
+	pipeline.AddRootSignatureAssociation(m_hitSignature.Get(), { L"HitGroup" });
+
+	pipeline.SetMaxPayloadSize(4 * sizeof(float)); // RGB + distance
+	pipeline.SetMaxAttributeSize(2 * sizeof(float)); // barycentric coordinates
+	pipeline.SetMaxRecursionDepth(1);
+
+	m_rtStateObject = pipeline.Generate();
 }

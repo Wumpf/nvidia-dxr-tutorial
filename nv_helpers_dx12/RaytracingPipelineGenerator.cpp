@@ -44,7 +44,7 @@ compiling in debug mode.
 
 #include "RaytracingPipelineGenerator.h"
 
-#include "dxcapi.h"
+#include "../dxc/dxcapi.h"
 #include <unordered_set>
 #include <stdexcept>
 
@@ -52,11 +52,9 @@ namespace nv_helpers_dx12
 {
 
 //--------------------------------------------------------------------------------------------------
-// The pipeline helper requires access to the device, as well as the
-// raytracing device prior to Windows 10 RS5.
-RayTracingPipelineGenerator::RayTracingPipelineGenerator(ID3D12Device* device,
-														 ID3D12Device5* rtDevice)
-    : m_device(device), m_rtDevice(rtDevice)
+// The pipeline helper requires access to the device.
+RayTracingPipelineGenerator::RayTracingPipelineGenerator(ID3D12Device5* device)
+    : m_device(device)
 {
   // The pipeline creation requires having at least one empty global and local root signatures, so
   // we systematically create both, as this does not incur any overhead
@@ -271,13 +269,13 @@ ID3D12StateObject* RayTracingPipelineGenerator::Generate()
   // Describe the ray tracing pipeline state object
   D3D12_STATE_OBJECT_DESC pipelineDesc = {};
   pipelineDesc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
-  pipelineDesc.NumSubobjects = currentIndex; // static_cast<UINT>(subobjects.size());
+  pipelineDesc.NumSubobjects = static_cast<UINT>(subobjects.size());
   pipelineDesc.pSubobjects = subobjects.data();
 
   ID3D12StateObject* rtStateObject = nullptr;
 
   // Create the state object
-  HRESULT hr = m_rtDevice->CreateStateObject(&pipelineDesc, IID_PPV_ARGS(&rtStateObject));
+  HRESULT hr = m_device->CreateStateObject(&pipelineDesc, IID_PPV_ARGS(&rtStateObject));
   if (FAILED(hr))
   {
     throw std::logic_error("Could not create the raytracing state object");
