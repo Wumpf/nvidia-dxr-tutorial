@@ -32,6 +32,9 @@ void D3D12HelloTriangle::OnInit()
 
 	CreateAccelerationStructures();
 	CreateRaytracingPipeline();
+	CreateRaytracingOutputBuffer();
+	CreateShaderResourceHeap();
+	CreateShaderBindingTable();
 
 	// Command lists are created in the recording state, but there is nothing
 	// to record yet. The main loop expects it to be closed, so close it now.
@@ -380,8 +383,39 @@ void D3D12HelloTriangle::PopulateCommandList()
 	}
 	else
 	{
-		const float clearColor[] = { 0.6f, 0.8f, 0.4f, 1.0f };
-		m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+		std::vector<ID3D12DescriptorHeap*> heaps = { m_srvUavHeap.Get() };
+		m_commandList->SetDescriptorHeaps(static_cast<UINT>(heaps.size()), heaps.data());
+
+		// Transition output buffer from copy to unordered access (
+		CD3DX12_RESOURCE_BARRIER transition = CD3DX12_RESOURCE_BARRIER::Transition(m_outputResource.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		m_commandList->ResourceBarrier(1, &transition);
+
+		// Setup raytracing task
+		D3D12_DISPATCH_RAYS_DESC desc = {};
+		desc.RayGenerationShaderRecord.StartAddress = m_sbtStorage->GetGPUVirtualAddress();
+		desc.RayGenerationShaderRecord.SizeInBytes = m_sbtHelper.GetRayGenSectionSize();
+		desc.MissShaderTable.StartAddress = m_sbtStorage->GetGPUVirtualAddress() + m_sbtHelper.GetRayGenSectionSize();
+		desc.MissShaderTable.SizeInBytes = m_sbtHelper.GetMissEntrySize();
+		desc.MissShaderTable.StrideInBytes = m_sbtHelper.GetMissSectionSize();
+		desc.HitGroupTable.StartAddress = m_sbtStorage->GetGPUVirtualAddress() + m_sbtHelper.GetRayGenSectionSize() + m_sbtHelper.GetMissSectionSize();
+		desc.HitGroupTable.SizeInBytes = m_sbtHelper.GetHitGroupEntrySize();
+		desc.HitGroupTable.StrideInBytes = m_sbtHelper.GetHitGroupSectionSize();
+		desc.Width = GetWidth();
+		desc.Height = GetHeight();
+		desc.Depth = 1;
+		m_commandList->SetPipelineState1(m_rtStateObject.Get());
+		m_commandList->DispatchRays(&desc);
+
+		// Copy raytracing output buffer to backbuffer.
+		transition = CD3DX12_RESOURCE_BARRIER::Transition(m_outputResource.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
+		m_commandList->ResourceBarrier(1, &transition);
+		transition = CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_DEST);
+		m_commandList->ResourceBarrier(1, &transition);
+		m_commandList->CopyResource(m_renderTargets[m_frameIndex].Get(), m_outputResource.Get());
+
+		// Go back to render target state. Todo: Can't we transition directly to present?
+		transition = CD3DX12_RESOURCE_BARRIER::Transition(m_renderTargets[m_frameIndex].Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RENDER_TARGET);
+		m_commandList->ResourceBarrier(1, &transition);
 	}
 
 	// Indicate that the back buffer will now be used to present.
@@ -412,6 +446,47 @@ void D3D12HelloTriangle::WaitForPreviousFrame()
 	m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 }
 
+void D3D12HelloTriangle::CreateRaytracingOutputBuffer()
+{
+	D3D12_RESOURCE_DESC resDesc = {};
+	resDesc.DepthOrArraySize = 1;
+	resDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	// The backbuffer is actually DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, but sRGB formats cannot be used
+	// with UAVs. For accuracy we should convert to sRGB ourselves in the shader
+	resDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+	resDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+	resDesc.Width = GetWidth();
+	resDesc.Height = GetHeight();
+	resDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	resDesc.MipLevels = 1;
+	resDesc.SampleDesc.Count = 1;
+	ThrowIfFailed(m_device->CreateCommittedResource(
+		&nv_helpers_dx12::kDefaultHeapProps, D3D12_HEAP_FLAG_NONE, &resDesc,
+		D3D12_RESOURCE_STATE_COPY_SOURCE, nullptr, IID_PPV_ARGS(&m_outputResource)));
+}
+
+void D3D12HelloTriangle::CreateShaderResourceHeap()
+{
+	m_srvUavHeap = nv_helpers_dx12::CreateDescriptorHeap(m_device.Get(), 2, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true);
+
+	D3D12_CPU_DESCRIPTOR_HANDLE srvHandle = m_srvUavHeap->GetCPUDescriptorHandleForHeapStart();
+
+	D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+	uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+	m_device->CreateUnorderedAccessView(m_outputResource.Get(), nullptr, &uavDesc, srvHandle);
+
+	srvHandle.ptr += m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc;
+	srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE;
+	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc.RaytracingAccelerationStructure.Location = m_topLevelASBuffers.result->GetGPUVirtualAddress();
+	
+	m_device->CreateShaderResourceView(nullptr, &srvDesc, srvHandle);
+}
+
 ComPtr<ID3D12RootSignature> D3D12HelloTriangle::CreateRayGenSignature()
 {
 	nv_helpers_dx12::RootSignatureGenerator rsc;
@@ -429,6 +504,26 @@ ComPtr<ID3D12RootSignature> D3D12HelloTriangle::CreateHitSignature()
 {
 	nv_helpers_dx12::RootSignatureGenerator rsc;
 	return rsc.Generate(m_device.Get(), true);
+}
+
+void D3D12HelloTriangle::CreateShaderBindingTable()
+{
+	m_sbtHelper.Reset();
+
+	D3D12_GPU_DESCRIPTOR_HANDLE srvUavHeapHandle = m_srvUavHeap->GetGPUDescriptorHandleForHeapStart();
+	auto heapPointer = reinterpret_cast<uint64_t*>(srvUavHeapHandle.ptr);
+	m_sbtHelper.AddRayGenerationProgram(L"RayGen", { heapPointer });
+	m_sbtHelper.AddMissProgram(L"Miss", {});
+	m_sbtHelper.AddHitGroup(L"HitGroup", {});
+
+	const uint32_t sbtSize = m_sbtHelper.ComputeSBTSize();
+	m_sbtStorage = nv_helpers_dx12::CreateBuffer(m_device.Get(), sbtSize, D3D12_RESOURCE_FLAG_NONE, D3D12_RESOURCE_STATE_GENERIC_READ, nv_helpers_dx12::kUploadHeapProps);
+	if (!m_sbtStorage)
+	{
+		throw std::logic_error("Could not allocate the shader binding table");
+	}
+
+	m_sbtHelper.Generate(m_sbtStorage.Get(), m_rtStateObjectProps.Get());
 }
 
 ComPtr<ID3D12RootSignature> D3D12HelloTriangle::CreateMissSignature()
@@ -464,4 +559,5 @@ void D3D12HelloTriangle::CreateRaytracingPipeline()
 	pipeline.SetMaxRecursionDepth(1);
 
 	m_rtStateObject = pipeline.Generate();
+	ThrowIfFailed(m_rtStateObject->QueryInterface(IID_PPV_ARGS(&m_rtStateObjectProps)));
 }

@@ -15,6 +15,7 @@
 #include "nv_helpers_dx12/TopLevelASGenerator.h"
 #include <vector>
 #include "dxc/dxcapi.h"
+#include "nv_helpers_dx12/ShaderBindingTableGenerator.h"
 
 using namespace DirectX;
 
@@ -109,13 +110,12 @@ private:
 	void PopulateCommandList();
 	void WaitForPreviousFrame();
 
+	void CreateRaytracingOutputBuffer();
+	void CreateShaderResourceHeap();
 
-
-
-	ComPtr<ID3D12RootSignature> CreateRayGenSignature();
-	ComPtr<ID3D12RootSignature> CreateMissSignature();
-	ComPtr<ID3D12RootSignature> CreateHitSignature();
-
+	ComPtr<ID3D12Resource> m_outputResource;
+	ComPtr<ID3D12DescriptorHeap> m_srvUavHeap;
+	
 	void CreateRaytracingPipeline();
 
 	ComPtr<IDxcBlob> m_rayGenLibrary;
@@ -123,12 +123,21 @@ private:
 	ComPtr<IDxcBlob> m_missLibrary;
 	ComPtr<IDxcBlob> m_shadowLibrary;
 
+	ComPtr<ID3D12RootSignature> CreateRayGenSignature();
+	ComPtr<ID3D12RootSignature> CreateMissSignature();
+	ComPtr<ID3D12RootSignature> CreateHitSignature();
 
 	ComPtr<ID3D12RootSignature> m_rayGenSignature;
 	ComPtr<ID3D12RootSignature> m_hitSignature;
 	ComPtr<ID3D12RootSignature> m_missSignature;
-	ComPtr<ID3D12RootSignature> m_shadowSignature;
+	//ComPtr<ID3D12RootSignature> m_shadowSignature;
 
 	ComPtr<ID3D12StateObject> m_rtStateObject;
 	ComPtr<ID3D12StateObjectProperties> m_rtStateObjectProps;
+
+	
+	void CreateShaderBindingTable();
+
+	nv_helpers_dx12::ShaderBindingTableGenerator m_sbtHelper;
+	ComPtr<ID3D12Resource> m_sbtStorage;
 };

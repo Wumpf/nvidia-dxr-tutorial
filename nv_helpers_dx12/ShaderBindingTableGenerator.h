@@ -135,7 +135,7 @@ public:
   void AddHitGroup(const std::wstring& entryPoint, const std::vector<void*>& inputData);
 
   /// Compute the size of the SBT based on the set of programs and hit groups it contains
-  uint32_t ComputeSBTSize(ID3D12Device5* rtDevice);
+  uint32_t ComputeSBTSize();
 
   /// Build the SBT and store it into sbtBuffer, which has to be pre-allocated on the upload heap.
   /// Access to the raytracing pipeline object is required to fetch program identifiers using their
@@ -196,9 +196,5 @@ private:
   uint32_t m_rayGenEntrySize;
   uint32_t m_missEntrySize;
   uint32_t m_hitGroupEntrySize;
-
-  /// The program names are translated into program identifiers.The size in bytes of an identifier
-  /// is provided by the device and is the same for all categories.
-  UINT m_progIdSize;
 };
 } // namespace nv_helpers_dx12
